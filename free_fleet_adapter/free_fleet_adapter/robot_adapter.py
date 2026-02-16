@@ -15,10 +15,49 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from threading import Lock
 from typing import Annotated
 
 import rmf_adapter.easy_full_control as rmf_easy
-from rmf_adapter.robot_update_handle import ActivityIdentifier
+from rmf_adapter.robot_update_handle import ActionExecution, ActivityIdentifier
+
+
+class ExecutionFeedback:
+
+    def __init__(self, feedback, time_sec):
+        self.feedback = feedback
+        self.time_sec: int = time_sec
+
+
+class ExecutionHandle:
+
+    def __init__(
+        self,
+        execution: rmf_easy.CommandExecution | ActionExecution | None,
+    ):
+        self.execution = execution
+        self.goal_id = None
+        self.action = None
+        self.last_received_feedback: ExecutionFeedback | None = None
+        self.mutex = Lock()
+        self.mutex.acquire(blocking=True)
+
+    def set_goal_id(self, goal_id):
+        self.goal_id = goal_id
+        self.mutex.release()
+
+    def set_action(self, action):
+        self.action = action
+        self.mutex.release()
+
+    @property
+    def activity(self) -> ActivityIdentifier | None:
+        # Move the execution reference into a separate variable just in case
+        # another thread modifies self.execution while we're still using it.
+        execution = self.execution
+        if execution is not None:
+            return execution.identifier
+        return None
 
 
 class RobotAdapter(ABC):
@@ -95,6 +134,6 @@ class RobotAdapter(ABC):
         self,
         category: str,
         description: dict,
-        execution: ActivityIdentifier
+        execution: ActionExecution
     ):
         ...

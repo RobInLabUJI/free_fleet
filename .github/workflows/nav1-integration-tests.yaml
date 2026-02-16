@@ -1,17 +1,24 @@
 name: nav1-integration-tests
 
-on: push
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  ZENOH_VERSION: 1.5.0
 
 jobs:
   integration-tests:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     container:
-      image: osrf/ros:${{ matrix.ros_distribution }}-desktop-noble
+      image: osrf/ros:${{ matrix.ros_distribution }}-desktop
     strategy:
+      fail-fast: false
       matrix:
-        ros_distribution:
-          - jazzy
+        ros_distribution: [jazzy, kilted]
 
     steps:
       - name: Checkout
@@ -22,13 +29,15 @@ jobs:
           sudo apt update && sudo apt install docker-compose -y
 
       - name: Start test fixture containers
+        env:
+          ZENOH_VERSION: ${{ env.ZENOH_VERSION }}
         run: docker-compose -f ".github/docker/integration-tests/nav1-docker-compose.yaml" up -d --build
 
       - name: build-and-test
         uses: ./.github/actions/build-and-test
         with:
           ros-distribution: ${{ matrix.ros_distribution }}
-          zenoh-version: 1.1.0
+          zenoh-version: ${{ env.ZENOH_VERSION }}
           nav1-integration-testing: ON
 
       - name: Stop test fixture containers
@@ -43,3 +52,13 @@ jobs:
           fail_ci_if_error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  retry-on-failure:
+    if: failure() && fromJSON(github.run_attempt) < 3
+    needs: [integration-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run retry-workflow.yaml -F run_id=${{ github.run_id }}
